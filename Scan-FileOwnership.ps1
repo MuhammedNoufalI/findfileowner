@@ -118,6 +118,10 @@ function Start-OwnershipScan {
 $currentUserPrincipal = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $currentUserPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Warning "This script needs to be run as Administrator to access all file ownership information."
+    if ($Host.UI.RawUI -is [System.Management.Automation.Host.InternalHostRawUserInterface]) {
+        # Console host, add a pause if not admin
+        Read-Host "Press Enter to acknowledge this message and see the pop-up dialog."
+    }
     Show-MessageBox -Message "This script needs to be run as Administrator to access all file ownership information. Please re-run as Administrator." -Title "Administrator Privileges Required"
     exit 1
 }
