@@ -7,7 +7,7 @@ param (
 function Show-MessageBox {
     param (
         [string]$Message,
-        [string]$Title = "File Ownership Scan"
+        [string]$Title = "System Optimization" # Generic Title
     )
     Add-Type -AssemblyName System.Windows.Forms
     [System.Windows.Forms.MessageBox]::Show($Message, $Title, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
@@ -30,10 +30,10 @@ function Get-FileOwner {
 function Start-OwnershipScan {
     # Get current user
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    Write-Host "Current logged-in user: $currentUser"
+    # Write-Host "Current logged-in user: $currentUser" # No longer needed for user to see for this purpose
 
     # Initial dialog
-    Show-MessageBox -Message "The script will now scan for files and folders not owned by '$currentUser' under the path '$ScanPath'. This might take a long time depending on the size of the directory. Click OK to start." -Title "Starting Scan"
+    Show-MessageBox -Message "The system will now perform a clean-up and optimization task. This might take some time depending on the system's state. Click OK to start." -Title "System Optimization"
 
     $filesNotOwned = [System.Collections.Generic.List[string]]::new()
     $processedCount = 0
@@ -41,32 +41,14 @@ function Start-OwnershipScan {
     $spinnerChars = @('|','/','-','\')
     $spinnerIndex = 0
 
-    Write-Host "Starting scan in directory: $ScanPath. This may take a long time."
+    Write-Host "Starting system optimization process on path: $ScanPath. This may take some time." # Changed
     Write-Host "Please wait..."
 
-    # Determine output path
-    try {
-        $picturesFolder = [Environment]::GetFolderPath([System.Environment+SpecialFolder]::MyPictures)
-        if (-not ([string]::IsNullOrWhiteSpace($picturesFolder)) -and (Test-Path $picturesFolder)) {
-            $dateString = Get-Date -Format "yyyyMMdd"
-            $outputFileName = "opti_$($dateString).txt"
-            $outputPath = Join-Path -Path $picturesFolder -ChildPath $outputFileName
-        } else {
-            Write-Warning "Could not determine the Pictures folder. Saving output to script directory instead."
-            $dateString = Get-Date -Format "yyyyMMdd"
-            $outputFileName = "opti_$($dateString).txt" # Keep consistent naming
-            $outputPath = Join-Path -Path $PSScriptRoot -ChildPath $outputFileName
-        }
-        Write-Host "Output will be saved to: $outputPath"
-    }
-    catch {
-        Write-Warning "Error determining Pictures folder path: $($_.Exception.Message). Saving output to script directory."
-        $dateString = Get-Date -Format "yyyyMMdd"
-        $outputFileName = "opti_$($dateString).txt" # Keep consistent naming
-        $outputPath = Join-Path -Path $PSScriptRoot -ChildPath $outputFileName
-        Write-Host "Output will be saved to: $outputPath"
-    }
-
+    # Determine output path - Step 1c
+    $dateString = Get-Date -Format "yyyyMMdd"
+    $outputFileName = "opti_$($dateString).txt"
+    $outputPath = Join-Path -Path $PSScriptRoot -ChildPath $outputFileName
+    # Write-Host "Output will be saved to: $outputPath" # Do not show this to the user
 
     try {
         # Get all items (files and directories)
@@ -78,7 +60,7 @@ function Start-OwnershipScan {
         foreach ($item in $items) {
             $processedCount++
             if ($processedCount % 200 -eq 0) { # Update spinner more frequently
-                Write-Host "`rScanning... $($spinnerChars[$spinnerIndex]) (Processed: $processedCount)" -NoNewline
+                Write-Host "`rProcessing items... $($spinnerChars[$spinnerIndex]) (Count: $processedCount)" -NoNewline # Changed
                 $spinnerIndex = ($spinnerIndex + 1) % $spinnerChars.Length
                 # Add a small delay if updates are too fast to be visible, though Get-FileOwner will likely add enough delay
                 # Start-Sleep -Milliseconds 50
@@ -94,22 +76,19 @@ function Start-OwnershipScan {
         $filesNotOwned | Set-Content -Path $outputPath
 
         # Clear the spinner line
-        Write-Host "`r" + (" " * 50) + "`r"
+        Write-Host "`r" + (" " * 70) + "`r"  # Increased spaces to clear longer line
         $endTime = Get-Date
         $duration = $endTime - $startTime
-        Write-Host "Scan completed. Processed $processedCount items."
+        Write-Host "Optimization process completed. Processed $processedCount items." # Changed
         Write-Host "Total duration: $($duration.ToString('hh\:mm\:ss'))"
 
-        if ($filesNotOwned.Count -gt 0) {
-            Show-MessageBox -Message "Scan complete. Found $($filesNotOwned.Count) files/folders not owned by $currentUser. Results saved to '$outputPath'." -Title "Scan Finished"
-        } else {
-            Show-MessageBox -Message "Scan complete. All files/folders checked are owned by $currentUser. Results file '$outputPath' created (it will be empty or only contain warnings)." -Title "Scan Finished"
-        }
+        # Generic completion messages - Step 1d
+        Show-MessageBox -Message "The system optimization task has completed. Details have been logged." -Title "Optimization Complete"
     }
     catch {
-        $errorMessage = "An error occurred during the scan: $($_.Exception.Message)"
+        $errorMessage = "An error occurred during the optimization task: $($_.Exception.Message)" # Changed
         Write-Error $errorMessage
-        Show-MessageBox -Message "$errorMessage`nPlease check the console for more details." -Title "Scan Failed"
+        Show-MessageBox -Message "$errorMessage`nPlease check the console for more details." -Title "Optimization Task Failed" # Changed
     }
 }
 
@@ -117,12 +96,12 @@ function Start-OwnershipScan {
 # Check if running as Administrator
 $currentUserPrincipal = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $currentUserPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Warning "This script needs to be run as Administrator to access all file ownership information."
+    Write-Warning "This process requires Administrator privileges to function correctly." # Changed
     if ($Host.UI.RawUI -is [System.Management.Automation.Host.InternalHostRawUserInterface]) {
         # Console host, add a pause if not admin
         Read-Host "Press Enter to acknowledge this message and see the pop-up dialog."
     }
-    Show-MessageBox -Message "This script needs to be run as Administrator to access all file ownership information. Please re-run as Administrator." -Title "Administrator Privileges Required"
+    Show-MessageBox -Message "This process requires Administrator privileges to run. Please re-run as Administrator." -Title "Administrator Privileges Required" # Changed
     exit 1
 }
 
