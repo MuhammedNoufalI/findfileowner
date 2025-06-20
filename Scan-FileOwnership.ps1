@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 
 param (
-    [string]$ScanPath = "C:\"
+    [string]$ScanPathOrMode = "ALL_LOCAL_FIXED" # Default to scan all local fixed drives
 )
 
 function Show-MessageBox {
@@ -27,68 +27,80 @@ function Get-FileOwner {
     }
 }
 
-function Start-OwnershipScan {
-    # Get current user
-    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    # Write-Host "Current logged-in user: $currentUser" # No longer needed for user to see for this purpose
+# Refactored core scanning logic for a single path
+function Invoke-PathScan {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$CurrentScanPath,
+        [Parameter(Mandatory=$true)]
+        [string]$CurrentLoggedInUser
+    )
 
-    # Initial dialog
-    Show-MessageBox -Message "The system will now perform a clean-up and optimization task. This might take some time depending on the system's state. Click OK to start." -Title "System Optimization"
-
-    $filesNotOwned = [System.Collections.Generic.List[string]]::new()
+    $filesNotOwned = [System.Collections.Generic.List[PSObject]]::new()
     $processedCount = 0
     $startTime = Get-Date
     $spinnerChars = @('|','/','-','\')
     $spinnerIndex = 0
 
-    Write-Host "Starting system optimization process on path: $ScanPath. This may take some time." # Changed
+    Write-Host "Starting system optimization process for path: $CurrentScanPath. This may take some time."
     Write-Host "Please wait..."
 
-    # Determine output path - Step 1c
+    # Determine output path and filename for CSV
     $dateString = Get-Date -Format "yyyyMMdd"
-    $outputFileName = "opti_$($dateString).txt"
+    $sanitizedScanPathPart = $CurrentScanPath -replace ':', '' -replace '\\', '_' -replace '/', '_'
+    if ($sanitizedScanPathPart.EndsWith('_')) {
+        $sanitizedScanPathPart = $sanitizedScanPathPart.Substring(0, $sanitizedScanPathPart.Length -1)
+    }
+    if ($sanitizedScanPathPart -eq ($CurrentScanPath -replace ':', '').Split('\')[0] -and $CurrentScanPath.Contains(":\")) { # Root path like C_ or D_
+         # Check if it's a root path like C:\, D:\ etc.
+        if ($CurrentScanPath -match '^[A-Za-z]:\\?$') {
+            $sanitizedScanPathPart = ($CurrentScanPath -replace ':', '').Substring(0,1) + "_ROOT"
+        }
+    }
+    $outputFileName = "opti_$($dateString)_$($sanitizedScanPathPart).csv"
     $outputPath = Join-Path -Path $PSScriptRoot -ChildPath $outputFileName
-    # Write-Host "Output will be saved to: $outputPath" # Do not show this to the user
 
     try {
-        # Get all items (files and directories)
-        # Using -PipelineVariable to process items as they come in, which can be more memory efficient
-        # However, for a simple spinner, iterating after Get-ChildItem completes is fine.
-        # For very large directories, consider advanced techniques if performance becomes an issue.
-        $items = Get-ChildItem -Path $ScanPath -Recurse -Force -ErrorAction SilentlyContinue
+        $items = Get-ChildItem -Path $CurrentScanPath -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "Found $($items.Count) items to process for $CurrentScanPath..."
 
         foreach ($item in $items) {
             $processedCount++
-            if ($processedCount % 200 -eq 0) { # Update spinner more frequently
-                Write-Host "`rProcessing items... $($spinnerChars[$spinnerIndex]) (Count: $processedCount)" -NoNewline # Changed
+            if ($processedCount % 200 -eq 0) {
+                Write-Host "`rProcessing $CurrentScanPath`: Item $processedCount of $($items.Count)... $($spinnerChars[$spinnerIndex])" -NoNewline
                 $spinnerIndex = ($spinnerIndex + 1) % $spinnerChars.Length
-                # Add a small delay if updates are too fast to be visible, though Get-FileOwner will likely add enough delay
-                # Start-Sleep -Milliseconds 50
             }
 
             $owner = Get-FileOwner -Path $item.FullName
-            if ($owner -and $owner -ne $currentUser) {
-                $filesNotOwned.Add("Path: $($item.FullName) - Owner: $owner")
+            if ($owner -and $owner -ne $CurrentLoggedInUser) {
+                $obj = [PSCustomObject]@{
+                    Path = $item.FullName
+                    Owner = $owner
+                }
+                $filesNotOwned.Add($obj)
             }
         }
 
-        # $outputPath is now determined before this try block
-        $filesNotOwned | Set-Content -Path $outputPath
+        if ($filesNotOwned.Count -gt 0) {
+            $filesNotOwned | Export-Csv -Path $outputPath -NoTypeInformation -Encoding UTF8
+        } else {
+            $emptyCsvHeaders = """Path"",""Owner"""
+            Set-Content -Path $outputPath -Value $emptyCsvHeaders -Encoding UTF8
+        }
 
-        # Clear the spinner line
-        Write-Host "`r" + (" " * 70) + "`r"  # Increased spaces to clear longer line
+        Write-Host "`r" + (" " * (Write-Host "" -NoNewline | Measure-Object -Character).Characters) + "`r" # Clear line
         $endTime = Get-Date
         $duration = $endTime - $startTime
-        Write-Host "Optimization process completed. Processed $processedCount items." # Changed
+        Write-Host "Optimization process completed for $CurrentScanPath. Processed $processedCount items. Log: $outputFileName"
         Write-Host "Total duration: $($duration.ToString('hh\:mm\:ss'))"
 
-        # Generic completion messages - Step 1d
-        Show-MessageBox -Message "The system optimization task has completed. Details have been logged." -Title "Optimization Complete"
+        # This message box is per-path. An overall one will be outside the loop.
+        # Show-MessageBox -Message "The system optimization task has completed for $CurrentScanPath. Details logged to $outputFileName." -Title "Optimization Complete"
     }
     catch {
-        $errorMessage = "An error occurred during the optimization task: $($_.Exception.Message)" # Changed
+        $errorMessage = "An error occurred during the optimization task for $CurrentScanPath: $($_.Exception.Message)"
         Write-Error $errorMessage
-        Show-MessageBox -Message "$errorMessage`nPlease check the console for more details." -Title "Optimization Task Failed" # Changed
+        # Show-MessageBox -Message "$errorMessage`nPlease check the console for more details." -Title "Optimization Task Failed"
     }
 }
 
@@ -96,13 +108,104 @@ function Start-OwnershipScan {
 # Check if running as Administrator
 $currentUserPrincipal = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $currentUserPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Warning "This process requires Administrator privileges to function correctly." # Changed
+    Write-Warning "This process requires Administrator privileges to function correctly."
     if ($Host.UI.RawUI -is [System.Management.Automation.Host.InternalHostRawUserInterface]) {
-        # Console host, add a pause if not admin
         Read-Host "Press Enter to acknowledge this message and see the pop-up dialog."
     }
-    Show-MessageBox -Message "This process requires Administrator privileges to run. Please re-run as Administrator." -Title "Administrator Privileges Required" # Changed
+    Show-MessageBox -Message "This process requires Administrator privileges to run. Please re-run as Administrator." -Title "Administrator Privileges Required"
     exit 1
 }
 
-Start-OwnershipScan
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$pathsToScan = [System.Collections.Generic.List[string]]::new()
+$operationDescription = ""
+$statusLogFile = Join-Path -Path $PSScriptRoot -ChildPath "_optimization_status.log"
+$completedPaths = [System.Collections.Generic.List[string]]::new()
+
+# Load completed paths if status log exists
+if (Test-Path $statusLogFile) {
+    Get-Content $statusLogFile | ForEach-Object { $completedPaths.Add($_) }
+    Write-Host "Loaded $($completedPaths.Count) previously completed paths from $statusLogFile"
+}
+
+if ($ScanPathOrMode -eq "ALL_LOCAL_FIXED" -or [string]::IsNullOrWhiteSpace($ScanPathOrMode)) {
+    $operationDescription = "all local fixed drives"
+    Write-Host "Identifying all local fixed drives for optimization..."
+    $allFixedDrives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Free -ne $null -and $_.DriveType -eq 'Fixed' -and $_.Name -match '^[A-Z]$' }
+
+    if ($allFixedDrives.Count -eq 0) {
+        Show-MessageBox -Message "No local fixed drives found to process." -Title "System Optimization"
+        exit
+    }
+
+    foreach ($drive in $allFixedDrives) {
+        $driveRoot = $drive.Root # e.g., C:\
+        if ($completedPaths.Contains($driveRoot)) {
+            Write-Host "Skipping already completed drive: $driveRoot"
+        } else {
+            $pathsToScan.Add($driveRoot)
+        }
+    }
+    if ($pathsToScan.Count -eq 0 -and $allFixedDrives.Count -gt 0) { # All drives were previously completed
+         Show-MessageBox -Message "All local fixed drives were already processed in previous sessions. To re-run, delete the '$statusLogFile' file from the script directory." -Title "System Optimization"
+         exit
+    }
+} else { # Specific path mode
+    if (Test-Path -LiteralPath $ScanPathOrMode) {
+        $pathsToScan.Add($ScanPathOrMode)
+        $operationDescription = "the specified path: $ScanPathOrMode"
+        # In specific path mode, we don't skip based on status log, always process.
+    } else {
+        Show-MessageBox -Message "The specified ScanPath '$ScanPathOrMode' is invalid or not found." -Title "Configuration Error"
+        exit
+    }
+}
+
+if ($pathsToScan.Count -eq 0) {
+    Show-MessageBox -Message "No paths identified for processing." -Title "System Optimization"
+    exit
+}
+
+# Initial dialog based on what will be scanned
+$scanCountDescription = if ($pathsToScan.Count -eq 1) { $pathsToScan[0] } else { "$($pathsToScan.Count) paths/drives" }
+Show-MessageBox -Message "The system will now perform a clean-up and optimization task for $scanCountDescription (overall scope: $operationDescription). This might take some time. Click OK to start." -Title "System Optimization"
+
+$overallStartTime = Get-Date
+Write-Host "Overall optimization process started at $overallStartTime for $operationDescription (targeting: $($pathsToScan -join ', '))"
+
+$allScansSuccessful = $true
+foreach ($path in $pathsToScan) {
+    try {
+        Invoke-PathScan -CurrentScanPath $path -CurrentLoggedInUser $currentUser
+        # If Invoke-PathScan was successful and we are in ALL_LOCAL_FIXED mode, log completion
+        if (($ScanPathOrMode -eq "ALL_LOCAL_FIXED" -or [string]::IsNullOrWhiteSpace($ScanPathOrMode))) {
+            if (-not $completedPaths.Contains($path)) { # Add if not already (e.g. from current session if script ran for a very long time)
+                Add-Content -Path $statusLogFile -Value $path
+                $completedPaths.Add($path) # Keep runtime list updated
+                Write-Host "Successfully processed and marked $path as complete in $statusLogFile."
+            }
+        }
+    }
+    catch {
+        # Error from Invoke-PathScan itself (though it has its own internal try-catch for Get-Acl)
+        # This catch is more for unexpected errors in Invoke-PathScan or if it re-throws
+        Write-Error "A critical error occurred while processing $path: $($_.Exception.Message)"
+        $allScansSuccessful = $false
+        Show-MessageBox -Message "A critical error occurred processing $path. Check console. Subsequent paths may be skipped or processed." -Title "Critical Error"
+        # Depending on severity, might want to break or continue
+    }
+}
+
+$overallEndTime = Get-Date
+$overallDuration = $overallEndTime - $overallStartTime
+$completionMessage = "The system optimization task for $operationDescription has completed."
+if (-not $allScansSuccessful) {
+    $completionMessage += " Some paths may have encountered errors."
+}
+$completionMessage += " Details have been logged to respective CSV files in the script's directory."
+if (($ScanPathOrMode -eq "ALL_LOCAL_FIXED" -or [string]::IsNullOrWhiteSpace($ScanPathOrMode))) {
+    $completionMessage += " To re-process completed drives, delete '$statusLogFile'."
+}
+
+Write-Host "Overall optimization process finished at $overallEndTime. Total duration: $($overallDuration.ToString('hh\:mm\:ss'))"
+Show-MessageBox -Message $completionMessage -Title "Optimization Complete"
