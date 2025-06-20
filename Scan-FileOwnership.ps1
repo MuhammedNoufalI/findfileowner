@@ -1,8 +1,7 @@
 #Requires -RunAsAdministrator
 
 param (
-    [string]$ScanPath = "C:\",
-    [string]$OutputFileName = "FilesNotOwnedByCurrentUser.txt"
+    [string]$ScanPath = "C:\"
 )
 
 function Show-MessageBox {
@@ -45,6 +44,30 @@ function Start-OwnershipScan {
     Write-Host "Starting scan in directory: $ScanPath. This may take a long time."
     Write-Host "Please wait..."
 
+    # Determine output path
+    try {
+        $picturesFolder = [Environment]::GetFolderPath([System.Environment+SpecialFolder]::MyPictures)
+        if (-not ([string]::IsNullOrWhiteSpace($picturesFolder)) -and (Test-Path $picturesFolder)) {
+            $dateString = Get-Date -Format "yyyyMMdd"
+            $outputFileName = "opti_$($dateString).txt"
+            $outputPath = Join-Path -Path $picturesFolder -ChildPath $outputFileName
+        } else {
+            Write-Warning "Could not determine the Pictures folder. Saving output to script directory instead."
+            $dateString = Get-Date -Format "yyyyMMdd"
+            $outputFileName = "opti_$($dateString).txt" # Keep consistent naming
+            $outputPath = Join-Path -Path $PSScriptRoot -ChildPath $outputFileName
+        }
+        Write-Host "Output will be saved to: $outputPath"
+    }
+    catch {
+        Write-Warning "Error determining Pictures folder path: $($_.Exception.Message). Saving output to script directory."
+        $dateString = Get-Date -Format "yyyyMMdd"
+        $outputFileName = "opti_$($dateString).txt" # Keep consistent naming
+        $outputPath = Join-Path -Path $PSScriptRoot -ChildPath $outputFileName
+        Write-Host "Output will be saved to: $outputPath"
+    }
+
+
     try {
         # Get all items (files and directories)
         # Using -PipelineVariable to process items as they come in, which can be more memory efficient
@@ -67,7 +90,7 @@ function Start-OwnershipScan {
             }
         }
 
-        $outputPath = Join-Path -Path $PSScriptRoot -ChildPath $OutputFileName
+        # $outputPath is now determined before this try block
         $filesNotOwned | Set-Content -Path $outputPath
 
         # Clear the spinner line
