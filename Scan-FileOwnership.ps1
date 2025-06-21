@@ -99,9 +99,9 @@ function Invoke-PathScan {
     }
     catch {
         $exceptionMessageText = $_.Exception.Message # Store message
-        $errorMessage = "An error occurred during the optimization task for $CurrentScanPath: $exceptionMessageText"
+        $errorMessage = 'An error occurred during the optimization task for {0}: {1}' -f $CurrentScanPath, $exceptionMessageText
         Write-Error $errorMessage
-        # Show-MessageBox -Message "$errorMessage`nPlease check the console for more details." -Title "Optimization Task Failed"
+        # Show-MessageBox -Message ('An error occurred during the optimization task for {0}: {1}`nPlease check the console for more details.' -f $CurrentScanPath, $exceptionMessageText) -Title "Optimization Task Failed"
     }
 }
 
@@ -191,9 +191,9 @@ foreach ($path in $pathsToScan) {
         # Error from Invoke-PathScan itself (though it has its own internal try-catch for Get-Acl)
         # This catch is more for unexpected errors in Invoke-PathScan or if it re-throws
         $exceptionMessageText = $_.Exception.Message # Store message
-        Write-Error "A critical error occurred while processing $path: $exceptionMessageText"
+        Write-Error ('A critical error occurred while processing {0}: {1}' -f $path, $exceptionMessageText)
         $allScansSuccessful = $false
-        Show-MessageBox -Message "A critical error occurred processing $path ($exceptionMessageText). Check console. Subsequent paths may be skipped or processed." -Title "Critical Error"
+        Show-MessageBox -Message ('A critical error occurred processing {0} ({1}). Check console. Subsequent paths may be skipped or processed.' -f $path, $exceptionMessageText) -Title "Critical Error"
         # Depending on severity, might want to break or continue
     }
 }
