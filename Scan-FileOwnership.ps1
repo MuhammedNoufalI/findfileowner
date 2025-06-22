@@ -131,11 +131,26 @@ if (Test-Path $statusLogFile) {
 
 if ($ScanPathOrMode -eq "ALL_LOCAL_FIXED" -or [string]::IsNullOrWhiteSpace($ScanPathOrMode)) {
     $operationDescription = "all local fixed drives"
-    Write-Host "Identifying all local fixed drives for optimization..."
-    $allFixedDrives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Free -ne $null -and $_.DriveType -eq 'Fixed' -and $_.Name -match '^[A-Z]$' }
+    Write-Host "Identifying all local fixed drives for optimization using Get-Volume..." # Updated message
+
+    # Use Get-Volume for more robust drive detection
+    $volumes = Get-Volume | Where-Object { \
+        ($_.DriveLetter -ne $null) -and \
+        ($_.FileSystem -ne $null) -and \
+        ($_.FileSystem -ne 'Unknown') -and \
+        ($_.HealthStatus -eq 'Healthy') -and \
+        ($_.DriveType -eq 'Fixed') \
+    }
+    # Transform to the expected object structure with Name and Root properties
+    $allFixedDrives = $volumes | ForEach-Object {
+        [PSCustomObject]@{
+            Name = $_.DriveLetter; # This is just the letter, e.g., C
+            Root = "$($_.DriveLetter):\" # This constructs C:\, D:\ etc.
+        }
+    }
 
     if ($allFixedDrives.Count -eq 0) {
-        Show-MessageBox -Message "No local fixed drives found to process." -Title "System Optimization"
+        Show-MessageBox -Message "No suitable local fixed drives found to process. Ensure drives are healthy, formatted, and reported as 'Fixed' type by Get-Volume." -Title "System Optimization" # Updated message
         exit
     }
 
