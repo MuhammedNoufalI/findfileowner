@@ -134,12 +134,12 @@ if ($ScanPathOrMode -eq "ALL_LOCAL_FIXED" -or [string]::IsNullOrWhiteSpace($Scan
     Write-Host "Identifying all local fixed drives for optimization using Get-Volume..." # Updated message
 
     # Use Get-Volume for more robust drive detection
-    $volumes = Get-Volume | Where-Object { \
-        ($_.DriveLetter -ne $null) -and \
-        ($_.FileSystem -ne $null) -and \
-        ($_.FileSystem -ne 'Unknown') -and \
-        ($_.HealthStatus -eq 'Healthy') -and \
-        ($_.DriveType -eq 'Fixed') \
+    $volumes = Get-Volume | Where-Object {
+        ($_.DriveLetter -ne $null) -and
+        ($_.FileSystem -ne $null) -and
+        ($_.FileSystem -ne 'Unknown') -and
+        ($_.HealthStatus -eq 'Healthy') -and
+        ($_.DriveType -eq 'Fixed')
     }
     # Transform to the expected object structure with Name and Root properties
     $allFixedDrives = $volumes | ForEach-Object {
