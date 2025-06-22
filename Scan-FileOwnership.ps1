@@ -22,7 +22,8 @@ function Get-FileOwner {
         return $acl.Owner
     }
     catch {
-        Write-Warning "Could not retrieve owner for $Path. Error: $($_.Exception.Message)"
+        $exceptionMessageText = $_.Exception.Message
+        Write-Warning ('Could not retrieve owner for path {0}. Error: {1}' -f $Path, $exceptionMessageText)
         return $null
     }
 }
